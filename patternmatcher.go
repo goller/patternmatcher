@@ -36,10 +36,14 @@ func init() {
 // the same as Matches, but as an optimization, the caller passes in
 // intermediate results from matching the parent directory.
 //
+// parentMatched tracks the results of matching a file against a set of patterns.
+// Position in this array corresponds to the position in the patterns.
+// This is used as state for children of parent directories to avoid re-checking patterns.
+//
 // The "file" argument should be a slash-delimited path.
-func MatchesUsingParentResults(patterns []*Pattern, file string, parentMatched MatchInfo) (bool, MatchInfo, error) {
+func MatchesUsingParentResults(patterns []*Pattern, file string, parentMatched []bool) (bool, []bool, error) {
 	if len(parentMatched) != 0 && len(parentMatched) != len(patterns) {
-		return false, MatchInfo{}, errors.New("wrong number of values in parentMatched")
+		return false, nil, errors.New("wrong number of values in parentMatched")
 	}
 
 	file = filepath.FromSlash(file)
@@ -161,11 +165,6 @@ func NewPatterns(patterns []string) ([]*Pattern, error) {
 	}
 	return matchPatters, nil
 }
-
-// MatchInfo tracks the results of matching a file against a set of patterns.
-// Position in this array corresponds to the position in the patterns.
-// This is used as state for children of parent directories to avoid re-checking patterns.
-type MatchInfo []bool
 
 type MatchType int
 

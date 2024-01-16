@@ -226,7 +226,7 @@ func TestMatches(t *testing.T) {
 			parentPath := filepath.Dir(filepath.FromSlash(text))
 			parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
 
-			parentMatchInfo := MatchInfo{}
+			var parentMatchInfo []bool
 			if parentPath != "." {
 				for i := range parentPathDirs {
 					_, parentMatchInfo, _ = MatchesUsingParentResults(patterns, strings.Join(parentPathDirs[:i+1], "/"), parentMatchInfo)
@@ -262,7 +262,7 @@ func TestMatches(t *testing.T) {
 
 	t.Run("MatchesUsingParentResultsNoContext", func(t *testing.T) {
 		check := func(patterns []*Pattern, text string, pass bool, desc string) {
-			res, _, _ := MatchesUsingParentResults(patterns, text, MatchInfo{})
+			res, _, _ := MatchesUsingParentResults(patterns, text, nil)
 			if pass != res {
 				t.Errorf("expected: %v, got: %v %s", pass, res, desc)
 			}
