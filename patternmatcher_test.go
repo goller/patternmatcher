@@ -3,7 +3,6 @@ package patternmatcher
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -11,7 +10,7 @@ import (
 )
 
 func TestWildcardMatches(t *testing.T) {
-	match, _ := Matches("fileutils.go", []string{"*"})
+	match, _ := matches("fileutils.go", []string{"*"})
 	if !match {
 		t.Errorf("failed to get a wildcard match, got %v", match)
 	}
@@ -19,7 +18,7 @@ func TestWildcardMatches(t *testing.T) {
 
 // A simple pattern match should return true.
 func TestPatternMatches(t *testing.T) {
-	match, _ := Matches("fileutils.go", []string{"*.go"})
+	match, _ := matches("fileutils.go", []string{"*.go"})
 	if !match {
 		t.Errorf("failed to get a match, got %v", match)
 	}
@@ -27,7 +26,7 @@ func TestPatternMatches(t *testing.T) {
 
 // An exclusion followed by an inclusion should return true.
 func TestExclusionPatternMatchesPatternBefore(t *testing.T) {
-	match, _ := Matches("fileutils.go", []string{"!fileutils.go", "*.go"})
+	match, _ := matches("fileutils.go", []string{"!fileutils.go", "*.go"})
 	if !match {
 		t.Errorf("failed to get true match on exclusion pattern, got %v", match)
 	}
@@ -35,7 +34,7 @@ func TestExclusionPatternMatchesPatternBefore(t *testing.T) {
 
 // A folder pattern followed by an exception should return false.
 func TestPatternMatchesFolderExclusions(t *testing.T) {
-	match, _ := Matches("docs/README.md", []string{"docs", "!docs/README.md"})
+	match, _ := matches("docs/README.md", []string{"docs", "!docs/README.md"})
 	if match {
 		t.Errorf("failed to get a false match on exclusion pattern, got %v", match)
 	}
@@ -43,7 +42,7 @@ func TestPatternMatchesFolderExclusions(t *testing.T) {
 
 // A folder pattern followed by an exception should return false.
 func TestPatternMatchesFolderWithSlashExclusions(t *testing.T) {
-	match, _ := Matches("docs/README.md", []string{"docs/", "!docs/README.md"})
+	match, _ := matches("docs/README.md", []string{"docs/", "!docs/README.md"})
 	if match {
 		t.Errorf("failed to get a false match on exclusion pattern, got %v", match)
 	}
@@ -51,7 +50,7 @@ func TestPatternMatchesFolderWithSlashExclusions(t *testing.T) {
 
 // A folder pattern followed by an exception should return false.
 func TestPatternMatchesFolderWildcardExclusions(t *testing.T) {
-	match, _ := Matches("docs/README.md", []string{"docs/*", "!docs/README.md"})
+	match, _ := matches("docs/README.md", []string{"docs/*", "!docs/README.md"})
 	if match {
 		t.Errorf("failed to get a false match on exclusion pattern, got %v", match)
 	}
@@ -59,7 +58,7 @@ func TestPatternMatchesFolderWildcardExclusions(t *testing.T) {
 
 // A pattern followed by an exclusion should return false.
 func TestExclusionPatternMatchesPatternAfter(t *testing.T) {
-	match, _ := Matches("fileutils.go", []string{"*.go", "!fileutils.go"})
+	match, _ := matches("fileutils.go", []string{"*.go", "!fileutils.go"})
 	if match {
 		t.Errorf("failed to get false match on exclusion pattern, got %v", match)
 	}
@@ -67,7 +66,7 @@ func TestExclusionPatternMatchesPatternAfter(t *testing.T) {
 
 // A filename evaluating to . should return false.
 func TestExclusionPatternMatchesWholeDirectory(t *testing.T) {
-	match, _ := Matches(".", []string{"*.go"})
+	match, _ := matches(".", []string{"*.go"})
 	if match {
 		t.Errorf("failed to get false match on ., got %v", match)
 	}
@@ -75,7 +74,7 @@ func TestExclusionPatternMatchesWholeDirectory(t *testing.T) {
 
 // A single ! pattern should return an error.
 func TestSingleExclamationError(t *testing.T) {
-	_, err := Matches("fileutils.go", []string{"!"})
+	_, err := matches("fileutils.go", []string{"!"})
 	if err == nil {
 		t.Errorf("failed to get an error for a single exclamation point, got %v", err)
 	}
@@ -83,7 +82,7 @@ func TestSingleExclamationError(t *testing.T) {
 
 // Matches with no patterns
 func TestMatchesWithNoPatterns(t *testing.T) {
-	matches, err := Matches("/any/path/there", []string{})
+	matches, err := matches("/any/path/there", []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +93,7 @@ func TestMatchesWithNoPatterns(t *testing.T) {
 
 // Matches with malformed patterns
 func TestMatchesWithMalformedPatterns(t *testing.T) {
-	matches, err := Matches("/any/path/there", []string{"["})
+	matches, err := matches("/any/path/there", []string{"["})
 	if err == nil {
 		t.Fatal("Should have failed because of a malformed syntax in the pattern")
 	}
@@ -200,65 +199,41 @@ func TestMatches(t *testing.T) {
 
 	t.Run("MatchesOrParentMatches", func(t *testing.T) {
 		for _, test := range tests {
-			pm, err := New([]string{test.pattern})
+			patterns, err := NewPatterns([]string{test.pattern})
 			if err != nil {
 				t.Fatalf("%v (pattern=%q, text=%q)", err, test.pattern, test.text)
 			}
-			res, _ := pm.MatchesOrParentMatches(test.text)
+			res, _ := MatchesOrParentMatches(patterns, test.text)
 			if test.pass != res {
 				t.Fatalf("%v (pattern=%q, text=%q)", err, test.pattern, test.text)
 			}
 		}
 
 		for _, test := range multiPatternTests {
-			pm, err := New(test.patterns)
+			patterns, err := NewPatterns(test.patterns)
 			if err != nil {
 				t.Fatalf("%v (patterns=%q, text=%q)", err, test.patterns, test.text)
 			}
-			res, _ := pm.MatchesOrParentMatches(test.text)
+			res, _ := MatchesOrParentMatches(patterns, test.text)
 			if test.pass != res {
 				t.Errorf("expected: %v, got: %v (patterns=%q, text=%q)", test.pass, res, test.patterns, test.text)
 			}
 		}
 	})
 
-	t.Run("MatchesUsingParentResult", func(t *testing.T) {
-		for _, test := range tests {
-			pm, err := New([]string{test.pattern})
-			if err != nil {
-				t.Fatalf("%v (pattern=%q, text=%q)", err, test.pattern, test.text)
-			}
-
-			parentPath := filepath.Dir(filepath.FromSlash(test.text))
-			parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
-
-			parentMatched := false
-			if parentPath != "." {
-				for i := range parentPathDirs {
-					parentMatched, _ = pm.MatchesUsingParentResult(strings.Join(parentPathDirs[:i+1], "/"), parentMatched)
-				}
-			}
-
-			res, _ := pm.MatchesUsingParentResult(test.text, parentMatched)
-			if test.pass != res {
-				t.Errorf("expected: %v, got: %v (pattern=%q, text=%q)", test.pass, res, test.pattern, test.text)
-			}
-		}
-	})
-
 	t.Run("MatchesUsingParentResults", func(t *testing.T) {
-		check := func(pm *PatternMatcher, text string, pass bool, desc string) {
+		check := func(patterns []*Pattern, text string, pass bool, desc string) {
 			parentPath := filepath.Dir(filepath.FromSlash(text))
 			parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
 
 			parentMatchInfo := MatchInfo{}
 			if parentPath != "." {
 				for i := range parentPathDirs {
-					_, parentMatchInfo, _ = pm.MatchesUsingParentResults(strings.Join(parentPathDirs[:i+1], "/"), parentMatchInfo)
+					_, parentMatchInfo, _ = MatchesUsingParentResults(patterns, strings.Join(parentPathDirs[:i+1], "/"), parentMatchInfo)
 				}
 			}
 
-			res, _, _ := pm.MatchesUsingParentResults(text, parentMatchInfo)
+			res, _, _ := MatchesUsingParentResults(patterns, text, parentMatchInfo)
 			if pass != res {
 				t.Errorf("expected: %v, got: %v %s", pass, res, desc)
 			}
@@ -266,28 +241,28 @@ func TestMatches(t *testing.T) {
 
 		for _, test := range tests {
 			desc := fmt.Sprintf("(pattern=%q text=%q)", test.pattern, test.text)
-			pm, err := New([]string{test.pattern})
+			patterns, err := NewPatterns([]string{test.pattern})
 			if err != nil {
 				t.Fatal(err, desc)
 			}
 
-			check(pm, test.text, test.pass, desc)
+			check(patterns, test.text, test.pass, desc)
 		}
 
 		for _, test := range multiPatternTests {
 			desc := fmt.Sprintf("pattern=%q text=%q", test.patterns, test.text)
-			pm, err := New(test.patterns)
+			patterns, err := NewPatterns(test.patterns)
 			if err != nil {
 				t.Fatal(err, desc)
 			}
 
-			check(pm, test.text, test.pass, desc)
+			check(patterns, test.text, test.pass, desc)
 		}
 	})
 
 	t.Run("MatchesUsingParentResultsNoContext", func(t *testing.T) {
-		check := func(pm *PatternMatcher, text string, pass bool, desc string) {
-			res, _, _ := pm.MatchesUsingParentResults(text, MatchInfo{})
+		check := func(patterns []*Pattern, text string, pass bool, desc string) {
+			res, _, _ := MatchesUsingParentResults(patterns, text, MatchInfo{})
 			if pass != res {
 				t.Errorf("expected: %v, got: %v %s", pass, res, desc)
 			}
@@ -295,86 +270,91 @@ func TestMatches(t *testing.T) {
 
 		for _, test := range tests {
 			desc := fmt.Sprintf("(pattern=%q text=%q)", test.pattern, test.text)
-			pm, err := New([]string{test.pattern})
+			patterns, err := NewPatterns([]string{test.pattern})
 			if err != nil {
 				t.Fatal(err, desc)
 			}
 
-			check(pm, test.text, test.pass, desc)
+			check(patterns, test.text, test.pass, desc)
 		}
 
 		for _, test := range multiPatternTests {
 			desc := fmt.Sprintf("(pattern=%q text=%q)", test.patterns, test.text)
-			pm, err := New(test.patterns)
+			patterns, err := NewPatterns(test.patterns)
 			if err != nil {
 				t.Fatal(err, desc)
 			}
 
-			check(pm, test.text, test.pass, desc)
+			check(patterns, test.text, test.pass, desc)
 		}
 	})
 }
 
 func TestCleanPatterns(t *testing.T) {
-	patterns := []string{"docs", "config"}
-	pm, err := New(patterns)
+	patterns, err := NewPatterns([]string{"docs", "config"})
 	if err != nil {
-		t.Fatalf("invalid pattern %v", patterns)
+		t.Fatalf("invalid pattern %v", err)
 	}
-	cleaned := pm.Patterns()
-	if len(cleaned) != 2 {
-		t.Errorf("expected 2 element slice, got %v", len(cleaned))
+	if len(patterns) != 2 {
+		t.Errorf("expected 2 element slice, got %v", len(patterns))
 	}
 }
 
 func TestCleanPatternsStripEmptyPatterns(t *testing.T) {
-	patterns := []string{"docs", "config", ""}
-	pm, err := New(patterns)
+	patterns, err := NewPatterns([]string{"docs", "config", ""})
 	if err != nil {
-		t.Fatalf("invalid pattern %v", patterns)
+		t.Fatalf("invalid pattern %v", err)
 	}
-	cleaned := pm.Patterns()
-	if len(cleaned) != 2 {
-		t.Errorf("expected 2 element slice, got %v", len(cleaned))
+	if len(patterns) != 2 {
+		t.Errorf("expected 2 element slice, got %v", len(patterns))
 	}
 }
 
 func TestCleanPatternsExceptionFlag(t *testing.T) {
-	patterns := []string{"docs", "!docs/README.md"}
-	pm, err := New(patterns)
+	patterns, err := NewPatterns([]string{"docs", "!docs/README.md"})
 	if err != nil {
-		t.Fatalf("invalid pattern %v", patterns)
+		t.Fatalf("invalid pattern %v", err)
 	}
-	if !pm.Exclusions() {
-		t.Errorf("expected exceptions to be true, got %v", pm.Exclusions())
+	var exclusions bool
+	for _, pattern := range patterns {
+		exclusions = exclusions || pattern.Exclusion
+	}
+	if !exclusions {
+		t.Errorf("expected exceptions to be true, got %v", exclusions)
 	}
 }
 
 func TestCleanPatternsLeadingSpaceTrimmed(t *testing.T) {
-	patterns := []string{"docs", "  !docs/README.md"}
-	pm, err := New(patterns)
+	patterns, err := NewPatterns([]string{"docs", "  !docs/README.md"})
 	if err != nil {
-		t.Fatalf("invalid pattern %v", patterns)
+		t.Fatalf("invalid pattern %v", err)
 	}
-	if !pm.Exclusions() {
-		t.Errorf("expected exceptions to be true, got %v", pm.Exclusions())
+	var exclusions bool
+	for _, pattern := range patterns {
+		exclusions = exclusions || pattern.Exclusion
+	}
+	if !exclusions {
+		t.Errorf("expected exceptions to be true, got %v", exclusions)
 	}
 }
 
 func TestCleanPatternsTrailingSpaceTrimmed(t *testing.T) {
-	patterns := []string{"docs", "!docs/README.md  "}
-	pm, err := New(patterns)
+	patterns, err := NewPatterns([]string{"docs", "!docs/README.md  "})
 	if err != nil {
 		t.Fatalf("invalid pattern %v", patterns)
 	}
-	if !pm.Exclusions() {
-		t.Errorf("expected exceptions to be true, got %v", pm.Exclusions())
+	var exclusions bool
+	for _, pattern := range patterns {
+		exclusions = exclusions || pattern.Exclusion
+	}
+	if !exclusions {
+		t.Errorf("expected exceptions to be true, got %v", exclusions)
 	}
 }
 
 func TestCleanPatternsErrorSingleException(t *testing.T) {
 	patterns := []string{"!"}
-	_, err := New(patterns)
+	_, err := NewPatterns(patterns)
 	if err == nil {
 		t.Errorf("expected error on single exclamation point, got %v", err)
 	}
@@ -464,7 +444,7 @@ func TestMatch(t *testing.T) {
 			pattern = filepath.Clean(pattern)
 			s = filepath.Clean(s)
 		}
-		ok, err := Matches(s, []string{pattern})
+		ok, err := matches(s, []string{pattern})
 		if ok != tt.match || err != tt.err {
 			t.Fatalf("Match(%#q, %#q) = %v, %q want %v, %q", pattern, s, ok, errp(err), tt.match, errp(tt.err))
 		}
@@ -473,75 +453,81 @@ func TestMatch(t *testing.T) {
 
 type compileTestCase struct {
 	pattern               string
-	matchType             matchType
+	matchType             MatchType
 	compiledRegexp        string
 	windowsCompiledRegexp string
 }
 
 var compileTests = []compileTestCase{
-	{"*", regexpMatch, `^[^/]*$`, `^[^\\]*$`},
-	{"file*", regexpMatch, `^file[^/]*$`, `^file[^\\]*$`},
-	{"*file", regexpMatch, `^[^/]*file$`, `^[^\\]*file$`},
-	{"a*/b", regexpMatch, `^a[^/]*/b$`, `^a[^\\]*\\b$`},
-	{"**", suffixMatch, "", ""},
-	{"**/**", regexpMatch, `^(.*/)?.*$`, `^(.*\\)?.*$`},
-	{"dir/**", prefixMatch, "", ""},
-	{"**/dir", suffixMatch, "", ""},
-	{"**/dir2/*", regexpMatch, `^(.*/)?dir2/[^/]*$`, `^(.*\\)?dir2\\[^\\]*$`},
-	{"**/dir2/**", regexpMatch, `^(.*/)?dir2/.*$`, `^(.*\\)?dir2\\.*$`},
-	{"**file", suffixMatch, "", ""},
-	{"**/file*txt", regexpMatch, `^(.*/)?file[^/]*txt$`, `^(.*\\)?file[^\\]*txt$`},
-	{"**/**/*.txt", regexpMatch, `^(.*/)?(.*/)?[^/]*\.txt$`, `^(.*\\)?(.*\\)?[^\\]*\.txt$`},
-	{"a[b-d]e", regexpMatch, `^a[b-d]e$`, `^a[b-d]e$`},
-	{".*", regexpMatch, `^\.[^/]*$`, `^\.[^\\]*$`},
-	{"abc.def", exactMatch, "", ""},
-	{"abc?def", regexpMatch, `^abc[^/]def$`, `^abc[^\\]def$`},
-	{"**/foo/bar", suffixMatch, "", ""},
-	{"a(b)c/def", exactMatch, "", ""},
-	{"a.|)$(}+{bc", exactMatch, "", ""},
-	{"dist/proxy.py-2.4.0rc3.dev36+g08acad9-py3-none-any.whl", exactMatch, "", ""},
+	{"*", RegexpMatch, `^[^/]*$`, `^[^\\]*$`},
+	{"file*", RegexpMatch, `^file[^/]*$`, `^file[^\\]*$`},
+	{"*file", RegexpMatch, `^[^/]*file$`, `^[^\\]*file$`},
+	{"a*/b", RegexpMatch, `^a[^/]*/b$`, `^a[^\\]*\\b$`},
+	{"**", SuffixMatch, "", ""},
+	{"**/**", RegexpMatch, `^(.*/)?.*$`, `^(.*\\)?.*$`},
+	{"dir/**", PrefixMatch, "", ""},
+	{"**/dir", SuffixMatch, "", ""},
+	{"**/dir2/*", RegexpMatch, `^(.*/)?dir2/[^/]*$`, `^(.*\\)?dir2\\[^\\]*$`},
+	{"**/dir2/**", RegexpMatch, `^(.*/)?dir2/.*$`, `^(.*\\)?dir2\\.*$`},
+	{"**file", SuffixMatch, "", ""},
+	{"**/file*txt", RegexpMatch, `^(.*/)?file[^/]*txt$`, `^(.*\\)?file[^\\]*txt$`},
+	{"**/**/*.txt", RegexpMatch, `^(.*/)?(.*/)?[^/]*\.txt$`, `^(.*\\)?(.*\\)?[^\\]*\.txt$`},
+	{"a[b-d]e", RegexpMatch, `^a[b-d]e$`, `^a[b-d]e$`},
+	{".*", RegexpMatch, `^\.[^/]*$`, `^\.[^\\]*$`},
+	{"abc.def", ExactMatch, "", ""},
+	{"abc?def", RegexpMatch, `^abc[^/]def$`, `^abc[^\\]def$`},
+	{"**/foo/bar", SuffixMatch, "", ""},
+	{"a(b)c/def", ExactMatch, "", ""},
+	{"a.|)$(}+{bc", ExactMatch, "", ""},
+	{"dist/proxy.py-2.4.0rc3.dev36+g08acad9-py3-none-any.whl", ExactMatch, "", ""},
 }
 
-// TestCompile confirms that "compile" assigns the correct match type to a
-// variety of test case patterns. If the match type is regexp, it also confirms
-// that the compiled regexp matches the expected regexp.
-func TestCompile(t *testing.T) {
-	t.Run("slash", testCompile("/"))
-	t.Run("backslash", testCompile(`\`))
-}
+// matches returns true if file matches any of the patterns
+// and isn't excluded by any of the subsequent patterns.
+//
+// This implementation is buggy (it only checks a single parent dir against the
+// pattern) and will be removed soon. Use MatchesOrParentMatches instead.
+func matches(file string, patterns []string) (bool, error) {
+	matchPatterns, err := NewPatterns(patterns)
+	if err != nil {
+		return false, err
+	}
+	file = filepath.Clean(file)
 
-func testCompile(sl string) func(*testing.T) {
-	return func(t *testing.T) {
-		for _, tt := range compileTests {
-			// Avoid NewPatternMatcher, which has platform-specific behavior
-			pm := &PatternMatcher{
-				patterns: make([]*Pattern, 1),
-			}
-			pattern := path.Clean(tt.pattern)
-			if sl != "/" {
-				pattern = strings.ReplaceAll(pattern, "/", sl)
-			}
-			newp := &Pattern{}
-			newp.cleanedPattern = pattern
-			newp.dirs = strings.Split(pattern, sl)
-			pm.patterns[0] = newp
+	if file == "." {
+		// Don't let them exclude everything, kind of silly.
+		return false, nil
+	}
 
-			if err := pm.patterns[0].compile(sl); err != nil {
-				t.Fatalf("Failed to compile pattern %q: %v", pattern, err)
-			}
-			if pm.patterns[0].matchType != tt.matchType {
-				t.Errorf("pattern %q: matchType = %v, want %v", pattern, pm.patterns[0].matchType, tt.matchType)
-				continue
-			}
-			if tt.matchType == regexpMatch {
-				if sl == `\` {
-					if pm.patterns[0].regexp.String() != tt.windowsCompiledRegexp {
-						t.Errorf("pattern %q: regexp = %s, want %s", pattern, pm.patterns[0].regexp, tt.windowsCompiledRegexp)
-					}
-				} else if pm.patterns[0].regexp.String() != tt.compiledRegexp {
-					t.Errorf("pattern %q: regexp = %s, want %s", pattern, pm.patterns[0].regexp, tt.compiledRegexp)
-				}
+	matched := false
+	file = filepath.FromSlash(file)
+	parentPath := filepath.Dir(file)
+	parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
+
+	for _, pattern := range matchPatterns {
+		// Skip evaluation if this is an inclusion and the filename
+		// already matched the pattern, or it's an exclusion and it has
+		// not matched the pattern yet.
+		if pattern.Exclusion != matched {
+			continue
+		}
+
+		match, err := pattern.Match(file)
+		if err != nil {
+			return false, err
+		}
+
+		if !match && parentPath != "." {
+			// Check to see if the pattern matches one of our parent dirs.
+			if len(pattern.Dirs) <= len(parentPathDirs) {
+				match, _ = pattern.Match(strings.Join(parentPathDirs[:len(pattern.Dirs)], string(os.PathSeparator)))
 			}
 		}
+
+		if match {
+			matched = !pattern.Exclusion
+		}
 	}
+
+	return matched, nil
 }
