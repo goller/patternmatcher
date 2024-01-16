@@ -31,191 +31,15 @@ func init() {
 	}
 }
 
-// PatternMatcher allows checking paths against a list of patterns
-type PatternMatcher struct {
-	patterns   []*Pattern
-	exclusions bool
-}
-
-// New creates a new matcher object for specific patterns that can
-// be used later to match against patterns against paths
-func New(patterns []string) (*PatternMatcher, error) {
-	pm := &PatternMatcher{
-		patterns: make([]*Pattern, 0, len(patterns)),
-	}
-	for _, p := range patterns {
-		// Eliminate leading and trailing whitespace.
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		p = filepath.Clean(p)
-		newp := &Pattern{}
-		if p[0] == '!' {
-			if len(p) == 1 {
-				return nil, errors.New("illegal exclusion pattern: \"!\"")
-			}
-			newp.exclusion = true
-			p = p[1:]
-			pm.exclusions = true
-		}
-		// Do some syntax checking on the pattern.
-		// filepath's Match() has some really weird rules that are inconsistent
-		// so instead of trying to dup their logic, just call Match() for its
-		// error state and if there is an error in the pattern return it.
-		// If this becomes an issue we can remove this since its really only
-		// needed in the error (syntax) case - which isn't really critical.
-		if _, err := filepath.Match(p, "."); err != nil {
-			return nil, err
-		}
-		newp.cleanedPattern = p
-		newp.dirs = strings.Split(p, string(os.PathSeparator))
-		pm.patterns = append(pm.patterns, newp)
-	}
-	return pm, nil
-}
-
-// Matches returns true if "file" matches any of the patterns
-// and isn't excluded by any of the subsequent patterns.
-//
-// The "file" argument should be a slash-delimited path.
-//
-// Matches is not safe to call concurrently.
-//
-// Deprecated: This implementation is buggy (it only checks a single parent dir
-// against the pattern) and will be removed soon. Use either
-// MatchesOrParentMatches or MatchesUsingParentResults instead.
-func (pm *PatternMatcher) Matches(file string) (bool, error) {
-	matched := false
-	file = filepath.FromSlash(file)
-	parentPath := filepath.Dir(file)
-	parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
-
-	for _, pattern := range pm.patterns {
-		// Skip evaluation if this is an inclusion and the filename
-		// already matched the pattern, or it's an exclusion and it has
-		// not matched the pattern yet.
-		if pattern.exclusion != matched {
-			continue
-		}
-
-		match, err := pattern.match(file)
-		if err != nil {
-			return false, err
-		}
-
-		if !match && parentPath != "." {
-			// Check to see if the pattern matches one of our parent dirs.
-			if len(pattern.dirs) <= len(parentPathDirs) {
-				match, _ = pattern.match(strings.Join(parentPathDirs[:len(pattern.dirs)], string(os.PathSeparator)))
-			}
-		}
-
-		if match {
-			matched = !pattern.exclusion
-		}
-	}
-
-	return matched, nil
-}
-
-// MatchesOrParentMatches returns true if "file" matches any of the patterns
-// and isn't excluded by any of the subsequent patterns.
-//
-// The "file" argument should be a slash-delimited path.
-//
-// Matches is not safe to call concurrently.
-func (pm *PatternMatcher) MatchesOrParentMatches(file string) (bool, error) {
-	matched := false
-	file = filepath.FromSlash(file)
-	parentPath := filepath.Dir(file)
-	parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
-
-	for _, pattern := range pm.patterns {
-		// Skip evaluation if this is an inclusion and the filename
-		// already matched the pattern, or it's an exclusion and it has
-		// not matched the pattern yet.
-		if pattern.exclusion != matched {
-			continue
-		}
-
-		match, err := pattern.match(file)
-		if err != nil {
-			return false, err
-		}
-
-		if !match && parentPath != "." {
-			// Check to see if the pattern matches one of our parent dirs.
-			for i := range parentPathDirs {
-				match, _ = pattern.match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
-				if match {
-					break
-				}
-			}
-		}
-
-		if match {
-			matched = !pattern.exclusion
-		}
-	}
-
-	return matched, nil
-}
-
-// MatchesUsingParentResult returns true if "file" matches any of the patterns
-// and isn't excluded by any of the subsequent patterns. The functionality is
-// the same as Matches, but as an optimization, the caller keeps track of
-// whether the parent directory matched.
-//
-// The "file" argument should be a slash-delimited path.
-//
-// MatchesUsingParentResult is not safe to call concurrently.
-//
-// Deprecated: this function does behave correctly in some cases (see
-// https://github.com/docker/buildx/issues/850).
-//
-// Use MatchesUsingParentResults instead.
-func (pm *PatternMatcher) MatchesUsingParentResult(file string, parentMatched bool) (bool, error) {
-	matched := parentMatched
-	file = filepath.FromSlash(file)
-
-	for _, pattern := range pm.patterns {
-		// Skip evaluation if this is an inclusion and the filename
-		// already matched the pattern, or it's an exclusion and it has
-		// not matched the pattern yet.
-		if pattern.exclusion != matched {
-			continue
-		}
-
-		match, err := pattern.match(file)
-		if err != nil {
-			return false, err
-		}
-
-		if match {
-			matched = !pattern.exclusion
-		}
-	}
-	return matched, nil
-}
-
-// MatchInfo tracks information about parent dir matches while traversing a
-// filesystem.
-type MatchInfo struct {
-	parentMatched []bool
-}
-
 // MatchesUsingParentResults returns true if "file" matches any of the patterns
 // and isn't excluded by any of the subsequent patterns. The functionality is
 // the same as Matches, but as an optimization, the caller passes in
 // intermediate results from matching the parent directory.
 //
 // The "file" argument should be a slash-delimited path.
-//
-// MatchesUsingParentResults is not safe to call concurrently.
-func (pm *PatternMatcher) MatchesUsingParentResults(file string, parentMatchInfo MatchInfo) (bool, MatchInfo, error) {
-	parentMatched := parentMatchInfo.parentMatched
-	if len(parentMatched) != 0 && len(parentMatched) != len(pm.patterns) {
+func MatchesUsingParentResults(patterns []*Pattern, file string, parentMatchInfo MatchInfo) (bool, MatchInfo, error) {
+	parentMatched := parentMatchInfo.ParentMatched
+	if len(parentMatched) != 0 && len(parentMatched) != len(patterns) {
 		return false, MatchInfo{}, errors.New("wrong number of values in parentMatched")
 	}
 
@@ -223,9 +47,9 @@ func (pm *PatternMatcher) MatchesUsingParentResults(file string, parentMatchInfo
 	matched := false
 
 	matchInfo := MatchInfo{
-		parentMatched: make([]bool, len(pm.patterns)),
+		ParentMatched: make([]bool, len(patterns)),
 	}
-	for i, pattern := range pm.patterns {
+	for i, pattern := range patterns {
 		match := false
 		// If the parent matched this pattern, we don't need to recheck.
 		if len(parentMatched) != 0 {
@@ -236,12 +60,12 @@ func (pm *PatternMatcher) MatchesUsingParentResults(file string, parentMatchInfo
 			// Skip evaluation if this is an inclusion and the filename
 			// already matched the pattern, or it's an exclusion and it has
 			// not matched the pattern yet.
-			if pattern.exclusion != matched {
+			if pattern.Exclusion != matched {
 				continue
 			}
 
 			var err error
-			match, err = pattern.match(file)
+			match, err = pattern.Match(file)
 			if err != nil {
 				return false, matchInfo, err
 			}
@@ -254,7 +78,7 @@ func (pm *PatternMatcher) MatchesUsingParentResults(file string, parentMatchInfo
 					parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
 					// Check to see if the pattern matches one of our parent dirs.
 					for i := range parentPathDirs {
-						match, _ = pattern.match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
+						match, _ = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
 						if match {
 							break
 						}
@@ -262,95 +86,181 @@ func (pm *PatternMatcher) MatchesUsingParentResults(file string, parentMatchInfo
 				}
 			}
 		}
-		matchInfo.parentMatched[i] = match
+		matchInfo.ParentMatched[i] = match
 
 		if match {
-			matched = !pattern.exclusion
+			matched = !pattern.Exclusion
 		}
 	}
 	return matched, matchInfo, nil
 }
 
-// Exclusions returns true if any of the patterns define exclusions
-func (pm *PatternMatcher) Exclusions() bool {
-	return pm.exclusions
-}
+// MatchesOrParentMatches returns true if file matches any of the patterns
+// and isn't excluded by any of the subsequent patterns.
+//
+// The "file" argument should be a slash-delimited path.
+func MatchesOrParentMatches(patterns []*Pattern, file string) (bool, error) {
+	file = filepath.Clean(file)
 
-// Patterns returns array of active patterns
-func (pm *PatternMatcher) Patterns() []*Pattern {
-	return pm.patterns
-}
+	if file == "." {
+		// Don't let them exclude everything, kind of silly.
+		return false, nil
+	}
 
-// Pattern defines a single regexp used to filter file paths.
-type Pattern struct {
-	matchType      matchType
-	cleanedPattern string
-	dirs           []string
-	regexp         *regexp.Regexp
-	exclusion      bool
-}
+	matched := false
+	file = filepath.FromSlash(file)
+	parentPath := filepath.Dir(file)
+	parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
 
-type matchType int
+	for _, pattern := range patterns {
+		// Skip evaluation if this is an inclusion and the filename
+		// already matched the pattern, or it's an exclusion and it has
+		// not matched the pattern yet.
+		if pattern.Exclusion != matched {
+			continue
+		}
 
-const (
-	unknownMatch matchType = iota
-	exactMatch
-	prefixMatch
-	suffixMatch
-	regexpMatch
-)
+		match, err := pattern.Match(file)
+		if err != nil {
+			return false, err
+		}
 
-func (p *Pattern) String() string {
-	return p.cleanedPattern
-}
+		if !match && parentPath != "." {
+			// Check to see if the pattern matches one of our parent dirs.
+			for i := range parentPathDirs {
+				match, _ = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
+				if match {
+					break
+				}
+			}
+		}
 
-// Exclusion returns true if this pattern defines exclusion
-func (p *Pattern) Exclusion() bool {
-	return p.exclusion
-}
-
-func (p *Pattern) match(path string) (bool, error) {
-	if p.matchType == unknownMatch {
-		if err := p.compile(string(os.PathSeparator)); err != nil {
-			return false, filepath.ErrBadPattern
+		if match {
+			matched = !pattern.Exclusion
 		}
 	}
 
-	switch p.matchType {
-	case exactMatch:
-		return path == p.cleanedPattern, nil
-	case prefixMatch:
+	return matched, nil
+}
+
+// NewPatterns creates patterns that match against paths.
+func NewPatterns(patterns []string) ([]*Pattern, error) {
+	matchPatters := make([]*Pattern, 0, len(patterns))
+	for _, p := range patterns {
+		// Eliminate leading and trailing whitespace.
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		p = filepath.Clean(p)
+
+		// Do some syntax checking on the pattern.
+		// filepath's Match() has some really weird rules that are inconsistent
+		// so instead of trying to dup their logic, just call Match() for its
+		// error state and if there is an error in the pattern return it.
+		// If this becomes an issue we can remove this since its really only
+		// needed in the error (syntax) case - which isn't really critical.
+		if _, err := filepath.Match(p, "."); err != nil {
+			return nil, err
+		}
+
+		newp, err := NewPattern(p)
+		if err != nil {
+			return nil, err
+		}
+		matchPatters = append(matchPatters, newp)
+	}
+	return matchPatters, nil
+}
+
+// MatchInfo tracks information about parent dir matches while traversing a
+// filesystem.
+type MatchInfo struct {
+	// Position in this array corresponds to the position in the patterns.
+	ParentMatched []bool
+}
+
+type MatchType int
+
+const (
+	UnknownMatch MatchType = iota
+	ExactMatch
+	PrefixMatch
+	SuffixMatch
+	RegexpMatch
+)
+
+// Pattern defines a single regexp used to filter file paths.
+type Pattern struct {
+	MatchType      MatchType
+	CleanedPattern string
+	Dirs           []string
+	Regexp         *regexp.Regexp
+	// Exclusion returns true if this pattern defines Exclusion
+	Exclusion bool
+}
+
+func NewPattern(pattern string) (*Pattern, error) {
+	var exclusion bool
+	if pattern[0] == '!' {
+		if len(pattern) == 1 {
+			return nil, errors.New("illegal exclusion pattern: \"!\"")
+		}
+		exclusion = true
+		pattern = pattern[1:]
+	}
+
+	matchType, regexp, err := Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	p := &Pattern{
+		MatchType:      matchType,
+		CleanedPattern: pattern,
+		Dirs:           strings.Split(pattern, string(os.PathSeparator)),
+		Regexp:         regexp,
+		Exclusion:      exclusion,
+	}
+
+	return p, nil
+}
+
+func (p *Pattern) Match(path string) (bool, error) {
+	switch p.MatchType {
+	case ExactMatch:
+		return path == p.CleanedPattern, nil
+	case PrefixMatch:
 		// strip trailing **
-		return strings.HasPrefix(path, p.cleanedPattern[:len(p.cleanedPattern)-2]), nil
-	case suffixMatch:
+		return strings.HasPrefix(path, p.CleanedPattern[:len(p.CleanedPattern)-2]), nil
+	case SuffixMatch:
 		// strip leading **
-		suffix := p.cleanedPattern[2:]
+		suffix := p.CleanedPattern[2:]
 		if strings.HasSuffix(path, suffix) {
 			return true, nil
 		}
 		// **/foo matches "foo"
 		return suffix[0] == os.PathSeparator && path == suffix[1:], nil
-	case regexpMatch:
-		return p.regexp.MatchString(path), nil
+	case RegexpMatch:
+		return p.Regexp.MatchString(path), nil
 	}
 
 	return false, nil
 }
 
-func (p *Pattern) compile(sl string) error {
+func Compile(pattern string) (MatchType, *regexp.Regexp, error) {
+	pathSeparator := string(os.PathSeparator)
 	regStr := "^"
-	pattern := p.cleanedPattern
 	// Go through the pattern and convert it to a regexp.
 	// We use a scanner so we can support utf-8 chars.
 	var scan scanner.Scanner
 	scan.Init(strings.NewReader(pattern))
 
-	escSL := sl
-	if sl == `\` {
-		escSL += `\`
+	escapedPathSeparator := pathSeparator
+	if pathSeparator == `\` {
+		escapedPathSeparator += `\`
 	}
 
-	p.matchType = exactMatch
+	matchType := ExactMatch
 	for i := 0; scan.Peek() != scanner.EOF; i++ {
 		ch := scan.Next()
 
@@ -360,38 +270,38 @@ func (p *Pattern) compile(sl string) error {
 				scan.Next()
 
 				// Treat **/ as ** so eat the "/"
-				if string(scan.Peek()) == sl {
+				if string(scan.Peek()) == pathSeparator {
 					scan.Next()
 				}
 
 				if scan.Peek() == scanner.EOF {
 					// is "**EOF" - to align with .gitignore just accept all
-					if p.matchType == exactMatch {
-						p.matchType = prefixMatch
+					if matchType == ExactMatch {
+						matchType = PrefixMatch
 					} else {
 						regStr += ".*"
-						p.matchType = regexpMatch
+						matchType = RegexpMatch
 					}
 				} else {
 					// is "**"
 					// Note that this allows for any # of /'s (even 0) because
 					// the .* will eat everything, even /'s
-					regStr += "(.*" + escSL + ")?"
-					p.matchType = regexpMatch
+					regStr += "(.*" + escapedPathSeparator + ")?"
+					matchType = RegexpMatch
 				}
 
 				if i == 0 {
-					p.matchType = suffixMatch
+					matchType = SuffixMatch
 				}
 			} else {
 				// is "*" so map it to anything but "/"
-				regStr += "[^" + escSL + "]*"
-				p.matchType = regexpMatch
+				regStr += "[^" + escapedPathSeparator + "]*"
+				matchType = RegexpMatch
 			}
 		} else if ch == '?' {
 			// "?" is any char except "/"
-			regStr += "[^" + escSL + "]"
-			p.matchType = regexpMatch
+			regStr += "[^" + escapedPathSeparator + "]"
+			matchType = RegexpMatch
 		} else if shouldEscape(ch) {
 			// Escape some regexp special chars that have no meaning
 			// in golang's filepath.Match
@@ -399,76 +309,37 @@ func (p *Pattern) compile(sl string) error {
 		} else if ch == '\\' {
 			// escape next char. Note that a trailing \ in the pattern
 			// will be left alone (but need to escape it)
-			if sl == `\` {
+			if pathSeparator == `\` {
 				// On windows map "\" to "\\", meaning an escaped backslash,
 				// and then just continue because filepath.Match on
 				// Windows doesn't allow escaping at all
-				regStr += escSL
+				regStr += escapedPathSeparator
 				continue
 			}
 			if scan.Peek() != scanner.EOF {
 				regStr += `\` + string(scan.Next())
-				p.matchType = regexpMatch
+				matchType = RegexpMatch
 			} else {
 				regStr += `\`
 			}
 		} else if ch == '[' || ch == ']' {
 			regStr += string(ch)
-			p.matchType = regexpMatch
+			matchType = RegexpMatch
 		} else {
 			regStr += string(ch)
 		}
 	}
 
-	if p.matchType != regexpMatch {
-		return nil
+	if matchType != RegexpMatch {
+		return matchType, nil, nil
 	}
 
 	regStr += "$"
 
 	re, err := regexp.Compile(regStr)
 	if err != nil {
-		return err
+		return UnknownMatch, nil, err
 	}
 
-	p.regexp = re
-	p.matchType = regexpMatch
-	return nil
-}
-
-// Matches returns true if file matches any of the patterns
-// and isn't excluded by any of the subsequent patterns.
-//
-// This implementation is buggy (it only checks a single parent dir against the
-// pattern) and will be removed soon. Use MatchesOrParentMatches instead.
-func Matches(file string, patterns []string) (bool, error) {
-	pm, err := New(patterns)
-	if err != nil {
-		return false, err
-	}
-	file = filepath.Clean(file)
-
-	if file == "." {
-		// Don't let them exclude everything, kind of silly.
-		return false, nil
-	}
-
-	return pm.Matches(file)
-}
-
-// MatchesOrParentMatches returns true if file matches any of the patterns
-// and isn't excluded by any of the subsequent patterns.
-func MatchesOrParentMatches(file string, patterns []string) (bool, error) {
-	pm, err := New(patterns)
-	if err != nil {
-		return false, err
-	}
-	file = filepath.Clean(file)
-
-	if file == "." {
-		// Don't let them exclude everything, kind of silly.
-		return false, nil
-	}
-
-	return pm.MatchesOrParentMatches(file)
+	return matchType, re, nil
 }
