@@ -512,15 +512,12 @@ func matches(file string, patterns []string) (bool, error) {
 			continue
 		}
 
-		match, err := pattern.Match(file)
-		if err != nil {
-			return false, err
-		}
+		match := pattern.Match(file)
 
 		if !match && parentPath != "." {
 			// Check to see if the pattern matches one of our parent dirs.
 			if len(pattern.Dirs) <= len(parentPathDirs) {
-				match, _ = pattern.Match(strings.Join(parentPathDirs[:len(pattern.Dirs)], string(os.PathSeparator)))
+				match = pattern.Match(strings.Join(parentPathDirs[:len(pattern.Dirs)], string(os.PathSeparator)))
 			}
 		}
 

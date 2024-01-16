@@ -64,11 +64,7 @@ func MatchesUsingParentResults(patterns []*Pattern, file string, parentMatchInfo
 				continue
 			}
 
-			var err error
-			match, err = pattern.Match(file)
-			if err != nil {
-				return false, matchInfo, err
-			}
+			match = pattern.Match(file)
 
 			// If the zero value of MatchInfo was passed in, we don't have
 			// any information about the parent dir's match results, and we
@@ -78,7 +74,7 @@ func MatchesUsingParentResults(patterns []*Pattern, file string, parentMatchInfo
 					parentPathDirs := strings.Split(parentPath, string(os.PathSeparator))
 					// Check to see if the pattern matches one of our parent dirs.
 					for i := range parentPathDirs {
-						match, _ = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
+						match = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
 						if match {
 							break
 						}
@@ -120,15 +116,11 @@ func MatchesOrParentMatches(patterns []*Pattern, file string) (bool, error) {
 			continue
 		}
 
-		match, err := pattern.Match(file)
-		if err != nil {
-			return false, err
-		}
-
+		match := pattern.Match(file)
 		if !match && parentPath != "." {
 			// Check to see if the pattern matches one of our parent dirs.
 			for i := range parentPathDirs {
-				match, _ = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
+				match = pattern.Match(strings.Join(parentPathDirs[:i+1], string(os.PathSeparator)))
 				if match {
 					break
 				}
@@ -225,26 +217,26 @@ func NewPattern(pattern string) (*Pattern, error) {
 	return p, nil
 }
 
-func (p *Pattern) Match(path string) (bool, error) {
+func (p *Pattern) Match(path string) bool {
 	switch p.MatchType {
 	case ExactMatch:
-		return path == p.CleanedPattern, nil
+		return path == p.CleanedPattern
 	case PrefixMatch:
 		// strip trailing **
-		return strings.HasPrefix(path, p.CleanedPattern[:len(p.CleanedPattern)-2]), nil
+		return strings.HasPrefix(path, p.CleanedPattern[:len(p.CleanedPattern)-2])
 	case SuffixMatch:
 		// strip leading **
 		suffix := p.CleanedPattern[2:]
 		if strings.HasSuffix(path, suffix) {
-			return true, nil
+			return true
 		}
 		// **/foo matches "foo"
-		return suffix[0] == os.PathSeparator && path == suffix[1:], nil
+		return suffix[0] == os.PathSeparator && path == suffix[1:]
 	case RegexpMatch:
-		return p.Regexp.MatchString(path), nil
+		return p.Regexp.MatchString(path)
 	}
 
-	return false, nil
+	return false
 }
 
 func Compile(pattern string) (MatchType, *regexp.Regexp, error) {
